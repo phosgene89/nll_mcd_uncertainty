@@ -2,11 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def nll_loss(preds, targets, predicted_variance):
-  loss = 0.5 * 1/predicted_variance *(preds - targets)**2 + 0.5 * torch.log(predicted_variance)
-  mean_loss = torch.mean(loss)
-
-  return mean_loss
+def nll_loss(preds, targets, log_variance):
+    loss = 0.5 * torch.exp(-log_variance) * (preds - targets)**2 + 0.5 * log_variance
+    mean_loss = torch.mean(loss)
+    return mean_loss
 
 # Define the model
 class LinearModel(nn.Module):
@@ -16,12 +15,10 @@ class LinearModel(nn.Module):
         self.linear_variance = nn.Linear(input_size, output_size)
         self.dropout = nn.Dropout(dropout_rate)
 
-        self.softplus = nn.Softplus()
-
     def forward(self, x):
-        out = self.dropout(F.relu(self.linear(x)))
-        variance = self.softplus(self.linear_variance(x)) + 1e-6  # Predict variance
-        return out, variance
+        out = self.dropout(self.linear(x))
+        log_variance = self.linear_variance(x)  # Predict log-variance
+        return out, log_variance
 
 # Initialize the model with the number of input and output features
 model = LinearModel(input_size=10, output_size=1, dropout_rate=0.5)
@@ -34,10 +31,10 @@ x = torch.randn(100, 10)  # 100 samples, 10 features each
 y = torch.randn(100, 1)   # 100 target values
 
 # Training loop
-for epoch in range(10):  # 100 epochs
+for epoch in range(100):  # 100 epochs
     model.train()
-    y_pred, variance = model(x)  # Forward pass
-    loss = nll_loss(y_pred, y, variance)  
+    y_pred, log_variance = model(x)  # Forward pass
+    loss = nll_loss(y_pred, y, log_variance)  
     print(f"Epoch {epoch}, Loss {loss.item()}")
 
     optimizer.zero_grad()  # Zero gradients
@@ -52,7 +49,7 @@ with torch.no_grad():
 
 mean = predictions.mean(dim=0)
 variance_mcd = predictions.var(dim=0)
-variance_nll = torch.exp(log_variances.mean(dim=0))
+variance_nll = torch.exp(log_variances).mean(dim=0)
 
 # Combine the variances
 total_variance = variance_mcd + variance_nll
